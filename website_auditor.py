@@ -7,37 +7,20 @@ import requests
 from bs4 import BeautifulSoup
 
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 TIMEOUT = 15
-
-WEIGHTS = {
-    "no_whatsapp": 15,
-    "gmail_email": 8,
-    "no_contact_form": 5,
-    "no_click_to_call": 5,
-    "free_platform": 10,
-    "no_https": 10,
-    "no_cta": 10,
-    "no_testimonials": 5,
-    "no_portfolio": 5,
-    "no_title": 5,
-    "no_description": 3,
-    "no_h1": 5,
-    "old_copyright": 3,
-    "no_privacy_policy": 3,
-    "no_mobile_viewport": 8,
-    "no_favicon": 2,
-    "no_social_links": 3,
-}
 
 
 FREE_PLATFORMS = [
-    "wixsite.com","wix.com","weebly.com","wordpress.com",
-    "blogspot.com","godaddysites.com","squarespace.com",
+    "wixsite.com", "wix.com", "weebly.com",
+    "wordpress.com", "blogspot.com",
+    "godaddysites.com", "squarespace.com",
 ]
 
+
+# ─────────────────────────────────────────────
+# FETCH PAGE
+# ─────────────────────────────────────────────
 
 def fetch_page(url):
     try:
@@ -49,6 +32,10 @@ def fetch_page(url):
     except Exception as e:
         return None, None, None, str(e)
 
+
+# ─────────────────────────────────────────────
+# ANALYSIS FUNCTIONS
+# ─────────────────────────────────────────────
 
 def check_domain(url):
     d = urlparse(url).netloc.lower()
@@ -67,10 +54,8 @@ def check_contact(soup, html):
 
     return {
         "has_whatsapp": "whatsapp" in html,
-        "has_gmail": any("@gmail.com" in e for e in emails),
-        "has_company_email": any("@gmail.com" not in e for e in emails),
         "has_contact_form": bool(soup.find("form")),
-        "has_click_to_call": bool(soup.find("a", href=re.compile(r"^tel:")))
+        "has_click_to_call": bool(soup.find("a", href=re.compile(r"^tel:"))),
     }
 
 
@@ -78,7 +63,7 @@ def check_technical(soup, load):
     return {
         "has_mobile_viewport": bool(soup.find("meta", {"name": "viewport"})),
         "has_favicon": bool(soup.find("link", rel=lambda x: x and "icon" in x)),
-        "load_time_ms": load
+        "load_time_ms": load,
     }
 
 
@@ -93,10 +78,15 @@ def check_seo(soup):
 def check_marketing(html):
     html = html.lower()
     return {
-        "has_cta": any(x in html for x in ["contact", "quote", "book"]),
+        "has_cta": any(x in html for x in [
+            "get a quote", "request a quote", "book now",
+            "contact us", "call now", "whatsapp"
+        ]),
         "has_testimonials": "testimonial" in html,
         "has_portfolio": "portfolio" in html,
-        "has_social_links": any(x in html for x in ["facebook", "instagram", "linkedin"]),
+        "has_social_links": any(x in html for x in [
+            "facebook", "instagram", "linkedin"
+        ]),
     }
 
 
@@ -104,41 +94,67 @@ def check_trust(html):
     html = html.lower()
     return {
         "has_privacy_policy": "privacy" in html,
-        "old_copyright": False
     }
 
+
+# ─────────────────────────────────────────────
+# SCORING ENGINE (REALISTIC)
+# ─────────────────────────────────────────────
 
 def calculate_score(domain, contact, tech, seo, marketing, trust):
     score = 100
     issues = []
 
-    def deduct(k, msg):
+    def deduct(points, msg):
         nonlocal score
-        score -= WEIGHTS[k]
+        score -= points
         issues.append(msg)
 
     if domain["is_free_platform"]:
-        deduct("free_platform", "Free platform domain")
+        deduct(10, "Free platform domain")
 
     if not domain["is_https"]:
-        deduct("no_https", "No HTTPS")
+        deduct(10, "No HTTPS")
 
     if not contact["has_whatsapp"]:
-        deduct("no_whatsapp", "No WhatsApp")
+        deduct(15, "No WhatsApp")
 
     if not contact["has_contact_form"]:
-        deduct("no_contact_form", "No contact form")
+        deduct(10, "No contact form")
+
+    if not contact["has_click_to_call"]:
+        deduct(8, "No click-to-call")
 
     if not seo["has_title"]:
-        deduct("no_title", "No title")
+        deduct(8, "Missing title")
 
     if not seo["has_h1"]:
-        deduct("no_h1", "No H1")
+        deduct(8, "Missing H1")
 
-    score = max(0, score)
+    if not seo["has_description"]:
+        deduct(6, "Missing meta description")
 
-    return score, issues
+    if not marketing["has_cta"]:
+        deduct(15, "Weak CTA")
 
+    if not marketing["has_testimonials"]:
+        deduct(10, "No testimonials")
+
+    if not marketing["has_portfolio"]:
+        deduct(10, "No portfolio")
+
+    if not marketing["has_social_links"]:
+        deduct(6, "No social links")
+
+    if not trust["has_privacy_policy"]:
+        deduct(5, "No privacy policy")
+
+    return max(0, score), issues
+
+
+# ─────────────────────────────────────────────
+# MAIN AUDIT FUNCTION (IMPORT THIS ONLY)
+# ─────────────────────────────────────────────
 
 def audit(url: str, business_name=None):
     if not url.startswith("http"):
