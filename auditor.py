@@ -571,5 +571,5 @@ def main():
         print_report(result)
 
 
-if __name__ == "__main__":
+def audit(url: str, business_name: str = None):
     main()
